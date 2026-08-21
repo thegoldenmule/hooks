@@ -60,10 +60,11 @@ is read on every invocation.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `CLAUDE_TLDR_MAX_CHARS` | `750` | Character budget for the closing message. |
+| `CLAUDE_TLDR_WAIT_MS` | `2000` | How long to wait for the closing message to reach the transcript. |
 | `CLAUDE_TLDR_DISABLE` | unset | Set to `1` to stand the hook down. |
 
-`~/.claude/tldr.log` gets one line per turn, `pass` or `block` with the count
-and the limit. Read it for a week before picking a number. A limit set by
+`~/.claude/tldr.log` gets one line per turn, `pass` or `block` with the count,
+the limit, and how long the hook waited for the transcript. Read it for a week before picking a number. A limit set by
 guesswork is either invisible or constant.
 
 ### Test
@@ -72,8 +73,10 @@ guesswork is either invisible or constant.
 ./test.sh
 ```
 
-Fourteen cases over synthetic transcripts, asserting exit codes. Run it after
-any change to the counting window.
+Sixteen cases over synthetic transcripts, asserting exit codes. Two of them
+cover the wait described below, including one that appends the closing message
+four hundred milliseconds after the hook has already started. Run it after any
+change to the counting window.
 
 ### How it works
 
@@ -86,6 +89,31 @@ Claude Code passes the hook a transcript path on stdin. The hook walks that
 transcript backwards from the end and counts the `text` blocks it finds, then
 stops at the first tool call or user entry. That boundary is the whole design:
 it means only the closing message counts.
+
+### The message is not there yet
+
+Reading the transcript the moment the hook is called finds everything except the
+one message the hook exists to measure. Claude Code appends the closing message
+a beat after Stop hooks are invoked, so the window is empty and every turn
+passes at zero characters. Nothing about that looks like a bug from the outside:
+the hook runs, the log fills up with `pass`, and the gate never fires.
+
+Measured on a live session, the gap was about a hundred milliseconds:
+
+```
+17:21:13.142  hook reads the transcript   window is empty
+17:21:13.240  closing message lands       window is 680 chars
+```
+
+So the hook waits. It re-reads every fifty milliseconds until the window has
+something in it, up to `CLAUDE_TLDR_WAIT_MS`. The waiting is real but small,
+around a tenth of a second on a normal turn.
+
+A turn that genuinely ends without prose, on a tool call or a plan, has nothing
+to wait for and pays the full timeout before giving up. Two seconds is the
+default because a wrong guess in that direction costs a pause, while a wrong
+guess in the other direction costs the entire feature. The `waited` figure in
+the log is there to keep that number honest.
 
 Not counted:
 

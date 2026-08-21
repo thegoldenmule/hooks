@@ -3,6 +3,10 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 
 const MAX_CHARS = Number(process.env.CLAUDE_TLDR_MAX_CHARS ?? 750);
+// The closing message reaches the transcript after this hook is called, so an
+// empty window means "not written yet" far more often than it means "no prose".
+const WAIT_MS = Number(process.env.CLAUDE_TLDR_WAIT_MS ?? 2000);
+const POLL_MS = 50;
 
 let raw = '';
 try {
@@ -22,21 +26,23 @@ try {
 // Second pass through the hook: let the turn end or it ping-pongs.
 if (input.stop_hook_active) process.exit(0);
 
-let lines;
-try {
-  lines = readFileSync(input.transcript_path, 'utf8').split('\n');
-} catch {
-  process.exit(0);
-}
-
-const entries = [];
-for (const line of lines) {
-  if (!line.trim()) continue;
+function read() {
+  let lines;
   try {
-    entries.push(JSON.parse(line));
+    lines = readFileSync(input.transcript_path, 'utf8').split('\n');
   } catch {
-    // partial write at the tail
+    return null;
   }
+  const entries = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      // partial write at the tail
+    }
+  }
+  return entries;
 }
 
 // Fenced code isn't prose; a long file dump shouldn't trip the gate.
@@ -57,20 +63,36 @@ function log(msg) {
 
 // Only the closing message counts. Walking back from the end, a tool call or
 // any user entry ends the window, so narration between tools is not tallied.
-let chars = 0;
-for (let i = entries.length - 1; i >= 0; i--) {
-  const e = entries[i];
-  if (e.type === 'user') break;
-  if (e.type !== 'assistant' || e.isSidechain) continue;
-  const blocks = e.message?.content ?? [];
-  if (blocks.some((b) => b.type === 'tool_use')) break;
-  for (const b of blocks) {
-    if (b.type === 'text') chars += prose(b.text ?? '').length;
+function count(entries) {
+  let chars = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.type === 'user') break;
+    if (e.type !== 'assistant' || e.isSidechain) continue;
+    const blocks = e.message?.content ?? [];
+    if (blocks.some((b) => b.type === 'tool_use')) break;
+    for (const b of blocks) {
+      if (b.type === 'text') chars += prose(b.text ?? '').length;
+    }
   }
+  return chars;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const started = Date.now();
+let chars = 0;
+let waited = 0;
+for (;;) {
+  const entries = read();
+  if (entries === null) process.exit(0);
+  chars = count(entries);
+  waited = Date.now() - started;
+  if (chars > 0 || waited >= WAIT_MS) break;
+  await sleep(POLL_MS);
 }
 
 if (chars <= MAX_CHARS) {
-  log(`pass ${chars}/${MAX_CHARS}`);
+  log(`pass ${chars}/${MAX_CHARS} waited ${waited}ms`);
   process.exit(0);
 }
 
@@ -84,5 +106,5 @@ console.log(
 );
 // exit 2 + stderr is what actually blocks the turn
 process.stderr.write('tldr\n');
-log(`block ${chars}/${MAX_CHARS}`);
+log(`block ${chars}/${MAX_CHARS} waited ${waited}ms`);
 process.exit(2);

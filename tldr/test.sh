@@ -94,6 +94,34 @@ check nofile   0 '{"stop_hook_active":false,"transcript_path":"/no/such/file"}'
 check badinput 0 'not json'
 check nostdin  0 ''
 
+# The closing message reaches the transcript after the hook is called, so the
+# hook waits for it. These two cases are that wait, from both ends.
+echo "waits for the closer"
+head -4 "$WORK/narration.jsonl" > "$WORK/late.jsonl"  # ends on a tool call
+(sleep 0.4; node -e '
+  const {appendFileSync} = require("node:fs");
+  appendFileSync(process.argv[1], JSON.stringify({
+    type: "assistant",
+    message: {role: "assistant", content: [{type: "text", text: "L".repeat(2000)}]},
+  }) + "\n");
+' "$WORK/late.jsonl") &
+printf '%s' "$(transcript late)" | node "$HOOK" >/dev/null 2>&1
+got=$?
+wait
+[ "$got" = 2 ] \
+  && echo "ok    blocks a closer written after the hook starts" \
+  || { echo "FAIL  late closer exit $got, wanted 2"; fail=1; }
+
+start=$(date +%s%N)
+CLAUDE_TLDR_WAIT_MS=200 bash -c 'printf "%s" "$1" | node "$2" >/dev/null 2>&1' _ "$(transcript plan)" "$HOOK"
+got=$?
+elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
+if [ "$got" = 0 ] && [ "$elapsed" -lt 1500 ]; then
+  echo "ok    gives up on an empty window (${elapsed}ms)"
+else
+  echo "FAIL  empty window exit $got after ${elapsed}ms"; fail=1
+fi
+
 echo "reports"
 out=$(printf '%s' "$(transcript long)" | node "$HOOK" 2>/dev/null)
 echo "$out" | grep -q 'systemMessage' \
