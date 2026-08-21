@@ -26,8 +26,8 @@ git clone git@github.com:thegoldenmule/hooks.git ~/projects/thegoldenmule/hooks
 cd ~/projects/thegoldenmule/hooks/work-summary
 
 # schedule it: weekdays at 7:55 AM
-cp inc.powerhouse.gh-summary.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/inc.powerhouse.gh-summary.plist
+cp com.thegoldenmule.hooks.work-summary.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.thegoldenmule.hooks.work-summary.plist
 ```
 
 The plist runs `run.sh` from `~/projects/thegoldenmule/hooks/work-summary`. If
@@ -55,8 +55,8 @@ cat summary.md    # today's bullets
 cat history.md    # one dated section per day
 ```
 
-`launchctl kickstart gui/$(id -u)/inc.powerhouse.gh-summary` forces a scheduled
-run. `launchctl list | grep gh-summary` says whether it is loaded.
+`launchctl kickstart gui/$(id -u)/com.thegoldenmule.hooks.work-summary` forces a scheduled
+run. `launchctl list | grep work-summary` says whether it is loaded.
 
 ### Configure
 
@@ -88,12 +88,24 @@ back with the validator's complaints attached, up to four attempts.
 - Three to five bullets and nothing else in the output.
 - Eighty characters maximum per bullet, counted after the `- `.
 - A past-tense verb to open, and no `I`. The log is yours, so the subject is
-  assumed.
+  assumed. `VERB_FIRST` and `IRREGULAR_PAST` are what stop that from decaying
+  into label fragments. Add to `IRREGULAR_PAST` rather than loosening the rule.
 - No em dashes, en dashes, semicolons, markdown emphasis, or emoji.
 - No machine-written wording. That vocabulary comes from `doc-metrics.mjs` in
   another repo rather than a second list that would drift from it. If it cannot
   be reached, a smaller built-in list runs and the PASS line says so instead of
   implying the full check happened.
+
+It consumes that script's hard `llm-tells` plus its `loaded-language` and
+`brevity-hedges` candidates, and ignores its document-shape and
+sentence-mechanics scoring, which is calibrated for prose documents rather than
+five bullets.
+
+Two deliberate divergences from it. `doc-metrics.mjs` reports loaded language and
+hedges as candidates for a model to adjudicate, because in a long document
+"simple" might be accurate; in a twelve-word factual bullet it never is, so they
+fail here. Its soft tells fail too, except `harness`, since a test harness is a
+real thing. `SOFT_TELLS_ALLOWED` is where that lives.
 
 To change a rule, edit the constants at the top of `validate.mjs` and the
 matching line in `prompt.md`. Keep the two in step: the prompt is what makes the
@@ -105,7 +117,7 @@ first attempt pass, the validator is what makes the rule real.
 launchd's bare environment. `collect.sh` checks `gh auth status` first and a
 failed run overwrites `summary.md` with the reason, so a broken morning shows up
 in the terminal instead of looking like a quiet day. Check `collect.log`, then
-`/tmp/gh-summary.err`.
+`/tmp/work-summary.err`.
 
 Notification Center is not used. An `osascript` notification is attributed to
 Script Editor, and if that is suppressed in System Settings the banner is

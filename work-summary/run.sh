@@ -11,7 +11,7 @@ if ! "$DIR/collect.sh"; then
   {
     printf 'collection FAILED %s\n\n' "$(date '+%F %T')"
     printf 'Could not collect from GitHub. Most likely gh could not reach the\n'
-    printf 'login keychain under launchd. Check collect.log and /tmp/gh-summary.err.\n'
+    printf 'login keychain under launchd. Check collect.log and /tmp/work-summary.err.\n'
   } > "$DIR/summary.md"
   notify "Work summary failed" "Could not collect from GitHub. See collect.log."
   exit 1

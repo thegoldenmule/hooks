@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>inc.powerhouse.gh-summary</string>
+  <string>com.thegoldenmule.hooks.work-summary</string>
 
   <!-- run.sh collects, then summarizes. A login shell is used so nvm is on the
        PATH; env.sh locates node and claude itself if it is not. -->
@@ -29,9 +29,9 @@
 
   <!-- If the Mac is asleep at 7:55, launchd runs the job once it wakes. -->
   <key>StandardOutPath</key>
-  <string>/tmp/gh-summary.out</string>
+  <string>/tmp/work-summary.out</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/gh-summary.err</string>
+  <string>/tmp/work-summary.err</string>
   <key>RunAtLoad</key>
   <false/>
 </dict>
