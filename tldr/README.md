@@ -64,8 +64,9 @@ is read on every invocation.
 | `CLAUDE_TLDR_DISABLE` | unset | Set to `1` to stand the hook down. |
 
 `~/.claude/tldr.log` gets one line per turn, `pass` or `block` with the count,
-the limit, and how long the hook waited for the transcript. Read it for a week before picking a number. A limit set by
-guesswork is either invisible or constant.
+the limit, and how long the hook waited for the transcript. Read it for a week
+before picking a number. A limit set by guesswork is either invisible or
+constant.
 
 ### Test
 
