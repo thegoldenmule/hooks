@@ -1,0 +1,13 @@
+# Runtime data for work-summary. This is a real work log: PR titles, commit
+# subjects, and the bullets written from them. It stays on the machine that
+# generated it.
+work-summary/latest.json
+work-summary/brief.json
+work-summary/brief.txt
+work-summary/summary.md
+work-summary/history.md
+work-summary/draft.md
+work-summary/draft.raw
+work-summary/request.txt
+work-summary/collect.log
+work-summary/.shown
