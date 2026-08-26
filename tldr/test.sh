@@ -10,11 +10,21 @@ trap 'rm -rf "$WORK"' EXIT
 node - "$WORK" <<'JS'
 import { writeFileSync } from 'node:fs';
 const dir = process.argv[2];
-const user = (t) => ({ type: 'user', message: { role: 'user', content: t } });
-const result = () => ({
+const user = (t, promptId) => ({
   type: 'user',
+  ...(promptId ? { promptId } : {}),
+  message: { role: 'user', content: t },
+});
+const result = (promptId) => ({
+  type: 'user',
+  ...(promptId ? { promptId } : {}),
   message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] },
 });
+// How Claude Code records a typed slash command, and the prompt it expands into.
+const slash = (name, promptId) => [
+  user(`<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args></command-args>`, promptId),
+  { type: 'user', promptId, isMeta: true, message: { role: 'user', content: [text('expanded prompt for ' + name)] } },
+];
 const reply = (content, isSidechain = false) => ({
   type: 'assistant',
   isSidechain,
@@ -55,6 +65,45 @@ const cases = {
   ],
   // subagent output is not addressed to the user
   subagent: [user('hi'), reply([text('x'.repeat(2000))], true), reply([text('brief')])],
+  // a review's write-up is the deliverable, so it is exempt however long
+  command: [
+    ...slash('review', 'p1'),
+    reply([call()]),
+    result('p1'),
+    reply([text('L'.repeat(2000))]),
+  ],
+  // ...and the exemption ends with that turn, not with the session
+  scoped: [
+    ...slash('review', 'p1'),
+    reply([text('the review')]),
+    user('and now a plain question', 'p2'),
+    reply([text('L'.repeat(2000))]),
+  ],
+  // a command not on the list is gated like anything else
+  unlisted: [
+    ...slash('catchup', 'p1'),
+    reply([text('L'.repeat(2000))]),
+  ],
+  // the Stop hook's own feedback shares the turn's promptId and holds no tag
+  reprompt: [
+    user('plain question', 'p1'),
+    reply([text('L'.repeat(2000))]),
+    { type: 'user', promptId: 'p1', isMeta: true, message: { role: 'user', content: 'Stop hook feedback:\n[tldr]: tldr\n' } },
+    reply([text('L'.repeat(2000))]),
+  ],
+  // a plugin skill's name carries a namespace
+  namespaced: [
+    ...slash('assertion:catchup', 'p1'),
+    reply([text('L'.repeat(2000))]),
+  ],
+  // transcripts without promptIds fall back to the nearest typed prompt
+  legacy: [...slash('review'), reply([text('L'.repeat(2000))])],
+  legacyPlain: [
+    ...slash('review'),
+    reply([text('the review')]),
+    user('and now a plain question'),
+    reply([text('L'.repeat(2000))]),
+  ],
 };
 
 for (const [name, rows] of Object.entries(cases)) {
@@ -86,6 +135,28 @@ check closer    2 "$(transcript closer)"
 check split     2 "$(transcript split)"
 check plan      0 "$(transcript plan)"
 check subagent  0 "$(transcript subagent)"
+
+echo "slash commands"
+check command     0 "$(transcript command)"
+check scoped      2 "$(transcript scoped)"
+check unlisted    2 "$(transcript unlisted)"
+check namespaced  2 "$(transcript namespaced)"
+check reprompt    2 "$(transcript reprompt)"
+check legacy      0 "$(transcript legacy)"
+check legacyPlain 2 "$(transcript legacyPlain)"
+
+got=$(printf '%s' "$(transcript unlisted)" | CLAUDE_TLDR_SKIP_COMMANDS=/catchup node "$HOOK" >/dev/null 2>&1; echo $?)
+[ "$got" = 0 ] \
+  && echo "ok    CLAUDE_TLDR_SKIP_COMMANDS names the exempt commands" \
+  || { echo "FAIL  skip list override exit $got, wanted 0"; fail=1; }
+got=$(printf '%s' "$(transcript namespaced)" | CLAUDE_TLDR_SKIP_COMMANDS=assertion:catchup node "$HOOK" >/dev/null 2>&1; echo $?)
+[ "$got" = 0 ] \
+  && echo "ok    a namespaced plugin skill can be exempted" \
+  || { echo "FAIL  namespaced override exit $got, wanted 0"; fail=1; }
+got=$(printf '%s' "$(transcript command)" | CLAUDE_TLDR_SKIP_COMMANDS= node "$HOOK" >/dev/null 2>&1; echo $?)
+[ "$got" = 2 ] \
+  && echo "ok    an empty skip list gates every command" \
+  || { echo "FAIL  empty skip list exit $got, wanted 2"; fail=1; }
 
 # Every failure path must let the turn end rather than block it.
 echo "fails open"

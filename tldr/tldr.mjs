@@ -3,6 +3,14 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 
 const MAX_CHARS = Number(process.env.CLAUDE_TLDR_MAX_CHARS ?? 750);
+// Some slash commands answer in the closing message: the write-up *is* the
+// deliverable, so trimming it is a loss, not a mercy. `*` exempts every command.
+const SKIP_COMMANDS = (
+  process.env.CLAUDE_TLDR_SKIP_COMMANDS ?? 'review,code-review,security-review'
+)
+  .split(',')
+  .map((c) => c.trim().replace(/^\//, ''))
+  .filter(Boolean);
 // The closing message reaches the transcript after this hook is called, so an
 // empty window means "not written yet" far more often than it means "no prose".
 const WAIT_MS = Number(process.env.CLAUDE_TLDR_WAIT_MS ?? 2000);
@@ -78,6 +86,48 @@ function count(entries) {
   return chars;
 }
 
+// `:` so that a plugin skill (`assertion:catchup`) can be named in the list too.
+const TAG = /<command-name>\s*\/?([\w:-]+)\s*<\/command-name>/;
+
+// The slash command that opened this turn, if any. Every entry of a turn shares
+// a promptId, so that scopes the search; the typed command survives in the
+// transcript as a `<command-name>` tag on a string-content user entry, while the
+// expanded prompt it becomes does not carry the tag.
+function command(entries) {
+  const users = entries.filter((e) => e.type === 'user' && !e.isSidechain);
+  if (!users.length) return null;
+  // Taking it from the *last* user entry is what keeps the scope on this turn:
+  // an unlabelled turn gets `undefined`, which no labelled entry can match.
+  const promptId = users[users.length - 1].promptId;
+  for (let i = users.length - 1; i >= 0; i--) {
+    const e = users[i];
+    if (e.promptId !== promptId) break;
+    const content = e.message?.content;
+    // Tool results and the expanded prompt arrive as blocks and carry no tag;
+    // only the typed line is a string, so only it can end the search.
+    if (typeof content !== 'string') continue;
+    const found = content.match(TAG);
+    if (found) return found[1];
+    // Older transcripts have no promptIds at all, so the nearest typed prompt
+    // is the boundary: reaching a plain one means this turn began plainly.
+    if (promptId === undefined) break;
+  }
+  return null;
+}
+
+function exempt(entries) {
+  try {
+    const name = command(entries);
+    if (!name) return null;
+    return SKIP_COMMANDS.includes('*') || SKIP_COMMANDS.includes(name)
+      ? name
+      : null;
+  } catch {
+    // A detection slip must not exempt a turn, and must not block one either.
+    return null;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const started = Date.now();
 let chars = 0;
@@ -85,6 +135,11 @@ let waited = 0;
 for (;;) {
   const entries = read();
   if (entries === null) process.exit(0);
+  const skipped = exempt(entries);
+  if (skipped) {
+    log(`skip /${skipped}`);
+    process.exit(0);
+  }
   chars = count(entries);
   waited = Date.now() - started;
   if (chars > 0 || waited >= WAIT_MS) break;
