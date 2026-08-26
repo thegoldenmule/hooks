@@ -42,5 +42,10 @@ How to choose what goes in:
 - Never count rows yourself. The brief states exact counts, including a
   per-type tally for each repository. Quote those numbers or omit numbers.
 - Do not pad to five bullets. If the day held three real things, write three.
+- Never report an absence. No bullet may say that nothing was left open, that
+  the day closed clean, or that no reviews or issues remained. The brief lists
+  what was found, never what was not, and an empty list is as likely to be a
+  query that failed as a thing that did not happen. If the brief says DATA
+  INCOMPLETE, this matters more, not less: write only about what is listed.
 
 THE BRIEF:

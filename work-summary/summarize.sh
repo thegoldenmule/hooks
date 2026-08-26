@@ -4,7 +4,11 @@
 # attempts, each one fed the previous failure verbatim.
 
 set -uo pipefail
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env.sh"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SELF/env.sh"
+# Data lives in $DIR, which GH_SUMMARY_DIR can move; the scripts and the prompt
+# always come from beside this file. Reading them out of $DIR meant setting
+# GH_SUMMARY_DIR broke the run.
 cd "$DIR" || exit 1
 
 LOG="$DIR/collect.log"
@@ -19,7 +23,7 @@ for bin in node claude; do
   }
 done
 
-if ! node brief.mjs >> "$LOG" 2>&1; then
+if ! node "$SELF/brief.mjs" >> "$LOG" 2>&1; then
   say "FATAL: brief.mjs failed"
   printf 'shaping FAILED %s\n\nCould not shape the collected data. See collect.log.\n' \
     "$(date '+%F %T')" > summary.md
@@ -28,6 +32,21 @@ if ! node brief.mjs >> "$LOG" 2>&1; then
 fi
 
 WINDOW=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("brief.json","utf8")).window||"?")')
+FAILED=$(node -e 'console.log((JSON.parse(require("fs").readFileSync("brief.json","utf8")).failed_queries||[]).join(", "))')
+
+# A collection that lost queries and found nothing has no answer to give. Saying
+# so is the whole fix: the old code called this a quiet day.
+if grep -q "^COLLECTION INCOMPLETE" brief.txt; then
+  {
+    printf '%s\n\n' "$WINDOW"
+    printf 'collection INCOMPLETE, nothing usable found.\n\n'
+    printf 'These queries failed: %s\n' "$FAILED"
+    printf 'This is not a quiet day, it is a run that could not see. Check collect.log.\n'
+  } > summary.md
+  notify "Work summary $WINDOW (incomplete)" "Queries failed: $FAILED"
+  say "INCOMPLETE in $WINDOW, failed: $FAILED"
+  exit 1
+fi
 
 # A genuinely empty window is a real answer, not a failure.
 if grep -q "^NO ACTIVITY FOUND" brief.txt; then
@@ -46,7 +65,7 @@ FEEDBACK=""
 PASSED=0
 for try in $(seq 1 "$MAX_TRIES"); do
   {
-    cat prompt.md
+    cat "$SELF/prompt.md"
     cat brief.txt
     if [ -n "$FEEDBACK" ]; then
       printf '\nYOUR PREVIOUS ATTEMPT:\n\n%s\n' "$(cat draft.md)"
@@ -63,7 +82,7 @@ for try in $(seq 1 "$MAX_TRIES"); do
   # Strip any code fence the model wraps around the list.
   sed 's/^```.*$//' draft.raw | sed '/^$/d' > draft.md
 
-  if FEEDBACK=$(node validate.mjs draft.md 2>>"$LOG"); then
+  if FEEDBACK=$(node "$SELF/validate.mjs" draft.md 2>>"$LOG"); then
     say "attempt $try: $FEEDBACK"
     PASSED=1
     break
@@ -75,6 +94,11 @@ BULLETS=$(cat draft.md)
 
 if [ "$PASSED" = "1" ]; then
   printf '%s\n\n%s\n' "$WINDOW" "$BULLETS" > summary.md
+  # Partial data still produces bullets, but they describe a floor. Mark it so
+  # the terminal says the day may be under-reported.
+  if [ -n "$FAILED" ]; then
+    printf '\nINCOMPLETE: these queries failed, so work may be missing: %s\n' "$FAILED" >> summary.md
+  fi
 else
   say "FATAL: no draft passed in $MAX_TRIES attempts"
   {

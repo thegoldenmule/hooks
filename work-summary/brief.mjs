@@ -25,6 +25,13 @@ if (raw.error) {
 const repoOf = (x) => x?.repository?.nameWithOwner || x?.repository?.fullName || "unknown";
 const subject = (m) => String(m || "").split("\n")[0].trim();
 
+// Queries that died rather than came back empty. Everything below is a floor,
+// not a count, and the prose must not turn a hole into an absence.
+const failed = raw.failed_queries || [];
+const missing = (...names) => names.some((n) => failed.some((f) => f.startsWith(n)));
+const prsIncomplete = missing("authored_prs", "merged_prs");
+const commitsIncomplete = missing("commits", "branch_commits", "pr_commits");
+
 const prs = raw.authored_prs || [];
 const merged = raw.merged_prs || [];
 const commits = raw.commits || [];
@@ -53,6 +60,8 @@ for (const c of commits) {
   const prRef = subj.match(/\(#(\d+)\)$/);
   if (prRef && knownNums.has(Number(prRef[1]))) {
     dropped.mergeCommits.push(entry); // the PR entry already covers this
+  } else if (/^Merge (branch|remote-tracking branch|pull request) /.test(subj)) {
+    dropped.mergeCommits.push(entry); // a branch merge, not work of its own
   } else if (/^Revert "/.test(subj)) {
     dropped.reverts.push(entry);
   } else if (revertedTitles.has(subj)) {
@@ -79,6 +88,16 @@ const tally = (list) => {
   return Object.entries(t).sort((a, b) => b[1] - a[1]);
 };
 
+// Commit timestamps arrive in a mix of UTC and offset form. Rendering them raw
+// puts a 9pm commit on the next date, which is the same confusion that made the
+// window wrong in the first place, so print them in this machine's time.
+const localStamp = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(5, 16);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
 const prState = (p) => (p.isDraft ? "draft" : p.state || "open");
 const openPrs = prs.filter((p) => !mergedNums.has(p.number) && prState(p) !== "closed");
 const closedUnmerged = prs.filter((p) => !mergedNums.has(p.number) && prState(p) === "closed");
@@ -87,6 +106,7 @@ const brief = {
   window: raw.window,
   generated_at: raw.generated_at,
   truncated: raw.truncated || [],
+  failed_queries: failed,
   totals: {
     commits_raw: commits.length,
     commits_real: kept.length,
@@ -117,10 +137,19 @@ if (brief.truncated.length) {
   L.push(`WARNING: these queries hit the result cap and may be incomplete: ${brief.truncated.join(", ")}`);
   L.push("");
 }
+if (failed.length) {
+  L.push(`DATA INCOMPLETE: these queries failed and returned nothing: ${failed.join(", ")}.`);
+  L.push("Every count below is a floor. Describe only what is listed here, and do");
+  L.push("not write that anything was absent, finished off, or left with none");
+  L.push("outstanding. The collector could not see, which is not the same as empty.");
+  L.push("");
+}
 const t = brief.totals;
+const atLeast = (n, incomplete) => (incomplete ? `at least ${n}` : `${n}`);
 L.push(
-  `SHAPE: ${t.commits_real} real commits (${t.commits_raw} raw, ${t.merge_commits_folded} merge commits folded into their PRs), ` +
-    `${t.prs_merged} PRs merged, ${t.prs_open} still open, ${t.reviews} reviews of others, ${t.issues} issues.`
+  `SHAPE: ${atLeast(t.commits_real, commitsIncomplete)} real commits (${t.commits_raw} raw, ${t.merge_commits_folded} merge commits folded into their PRs), ` +
+    `${atLeast(t.prs_merged, prsIncomplete)} PRs merged, ${atLeast(t.prs_open, prsIncomplete)} still open, ` +
+    `${atLeast(t.reviews, missing("reviewed_prs"))} reviews of others, ${atLeast(t.issues, missing("issues"))} issues.`
 );
 L.push("");
 
@@ -147,11 +176,16 @@ if (brief.reverted.length) {
 for (const [repo, list] of Object.entries(byRepo)) {
   const counts = tally(list).map(([k, n]) => `${n} ${k}`).join(", ");
   L.push(`COMMITS IN ${repo} (${list.length}: ${counts}):`);
-  for (const c of list) L.push(`  ${c.date.slice(5, 16)}  ${c.subject}`);
+  for (const c of list) L.push(`  ${localStamp(c.date)}  ${c.subject}`);
   L.push("");
 }
 if (!merged.length && !kept.length && !brief.open_prs.length) {
-  L.push("NO ACTIVITY FOUND IN THIS WINDOW.");
+  // Only a clean run may claim a quiet day. If a query failed, the difference
+  // between "nothing happened" and "nothing was collected" is the whole point.
+  L.push(failed.length ? "COLLECTION INCOMPLETE, NOTHING USABLE FOUND." : "NO ACTIVITY FOUND IN THIS WINDOW.");
 }
 writeFileSync(`${dir}/brief.txt`, L.join("\n") + "\n");
-console.log(`brief: ${t.commits_real} real commits, ${t.prs_merged} merged, ${Object.keys(byRepo).length} repos`);
+console.log(
+  `brief: ${t.commits_real} real commits, ${t.prs_merged} merged, ${Object.keys(byRepo).length} repos` +
+    (failed.length ? `, INCOMPLETE (failed: ${failed.join(", ")})` : "")
+);

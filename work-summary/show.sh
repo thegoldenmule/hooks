@@ -39,6 +39,8 @@ else
 fi
 if grep -q "NEEDS ATTENTION" "$S"; then
   printf '%s  the draft failed the format check, see summary.md%s\n' "$WARN" "$OFF"
+elif grep -q "^INCOMPLETE:" "$S"; then
+  printf '%s  some queries failed, so this day may be under-reported%s\n' "$WARN" "$OFF"
 elif grep -qi "FAILED" "$S"; then
   printf '%s  this run did not complete, check collect.log%s\n' "$WARN" "$OFF"
 fi

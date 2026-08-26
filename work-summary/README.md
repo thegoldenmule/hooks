@@ -70,8 +70,35 @@ run. `launchctl list | grep work-summary` says whether it is loaded.
 
 `run.sh` calls `collect.sh`, then `summarize.sh`.
 
-`collect.sh` runs five `gh search` queries and writes `latest.json`. Monday
-reaches back three days so Friday is covered.
+`collect.sh` queries GitHub and writes `latest.json`. Monday reaches back three
+days so Friday is covered. Three things about that window and its coverage are
+easy to get wrong, and getting them wrong reads as a quiet day rather than as a
+bug:
+
+- **The window carries an offset.** GitHub's date qualifiers are UTC unless the
+  value says otherwise, but "yesterday" has to mean yesterday here. A bare
+  `--updated=2026-08-25..2026-08-25` drops everything after 7pm CDT into the
+  next UTC day, so an evening of work vanishes. The window is built as
+  `2026-08-25T00:00:00-05:00..2026-08-25T23:59:59-05:00`, with the offset read
+  from the target days themselves so a DST boundary inside the window holds.
+- **PRs are matched on `created` as well as `updated`.** `updated` is a single
+  last-touched timestamp, so it surfaces a PR only on the day it was last
+  touched. A PR opened and worked all day appears once, at the end, and is
+  invisible on every day between. The two result sets are unioned on `url`.
+- **PR commits are read per PR, not from commit search.** `gh search commits`
+  only indexes default branches, so a day spent entirely on a feature branch
+  reports zero commits and leaves the summary nothing to describe but the merge.
+  Every PR found above is walked with `gh pr view --json commits`, filtered to
+  your own authorship inside the window, and merged with the search results,
+  deduplicated on sha. `PR_CAP` bounds the API calls.
+
+A query that fails is not a query that returned nothing. `q()` retries three
+times with backoff, and a query that stays dead is named in `failed_queries` in
+`latest.json` rather than becoming an empty array. `brief.mjs` then prints a
+`DATA INCOMPLETE` banner, reports the affected counts as `at least N`, and
+refuses to emit `NO ACTIVITY FOUND`, because the difference between "nothing
+happened" and "nothing was collected" is the one thing the summary must not
+blur.
 
 `brief.mjs` shapes that into `brief.txt`. The raw output is not safe to
 summarize directly: it counts every merge commit twice, once as the commit and
@@ -118,6 +145,14 @@ launchd's bare environment. `collect.sh` checks `gh auth status` first and a
 failed run overwrites `summary.md` with the reason, so a broken morning shows up
 in the terminal instead of looking like a quiet day. Check `collect.log`, then
 `/tmp/work-summary.err`.
+
+A run that lost only some of its queries still writes bullets, since partial
+data is better than none, but `summary.md` gains an `INCOMPLETE:` line naming
+what failed and the terminal says the day may be under-reported. A run that lost
+queries and found nothing usable writes no bullets at all and says so. Neither
+case is ever phrased as an absence: `prompt.md` forbids claiming that nothing
+was left open or that the day closed clean, because an empty list is as likely
+to be a dead query as a thing that did not happen.
 
 Notification Center is not used. An `osascript` notification is attributed to
 Script Editor, and if that is suppressed in System Settings the banner is
