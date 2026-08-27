@@ -37,11 +37,16 @@ else
   # A failed run has no bullets, so show its explanation instead of nothing.
   tail -n +2 "$S" | sed "s/^/  /"
 fi
-if grep -q "NEEDS ATTENTION" "$S"; then
+# Every pattern here is anchored to the start of a line, and none is matched
+# case-insensitively, because these are sentinels written by run.sh and
+# summarize.sh rather than words. A bare `grep -i failed` also matches a bullet
+# describing a day's work on a failed-job rollback, which flags a clean run as
+# broken and teaches you to ignore the warning.
+if grep -q "^NEEDS ATTENTION:" "$S"; then
   printf '%s  the draft failed the format check, see summary.md%s\n' "$WARN" "$OFF"
 elif grep -q "^INCOMPLETE:" "$S"; then
   printf '%s  some queries failed, so this day may be under-reported%s\n' "$WARN" "$OFF"
-elif grep -qi "FAILED" "$S"; then
+elif grep -qE "^(collection|shaping) FAILED|^collection INCOMPLETE" "$S"; then
   printf '%s  this run did not complete, check collect.log%s\n' "$WARN" "$OFF"
 fi
 printf '%s  %s%s\n\n' "$DIM" "$S" "$OFF"
