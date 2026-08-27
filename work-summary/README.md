@@ -2,7 +2,7 @@
 
 A weekday work-log summarizer.
 
-Every weekday at 7:55 AM, launchd asks GitHub what you did the previous day, has
+Every weekday at 5:00 AM, launchd asks GitHub what you did the previous day, has
 Claude write it up as three to five bullets, and rejects that draft until it
 meets a format contract. The bullets appear in the next terminal you open.
 
@@ -25,7 +25,7 @@ locally because a sandbox cannot reach the GitHub API with your credentials.
 git clone git@github.com:thegoldenmule/hooks.git ~/projects/thegoldenmule/hooks
 cd ~/projects/thegoldenmule/hooks/work-summary
 
-# schedule it: weekdays at 7:55 AM
+# schedule it: weekdays at 5:00 AM
 cp com.thegoldenmule.hooks.work-summary.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.thegoldenmule.hooks.work-summary.plist
 ```

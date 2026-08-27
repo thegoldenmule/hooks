@@ -14,20 +14,20 @@
     <string>$HOME/projects/thegoldenmule/hooks/work-summary/run.sh</string>
   </array>
 
-  <!-- Weekdays at 7:55 AM local time. launchd uses local time, so this
+  <!-- Weekdays at 5:00 AM local time. launchd uses local time, so this
        follows DST automatically. Weekday 1=Mon ... 5=Fri.
        The notification arrives a minute or two later, once the draft has
        cleared the validator. -->
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>55</integer></dict>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>5</integer><key>Minute</key><integer>0</integer></dict>
   </array>
 
-  <!-- If the Mac is asleep at 7:55, launchd runs the job once it wakes. -->
+  <!-- If the Mac is asleep at 5:00, launchd runs the job once it wakes. -->
   <key>StandardOutPath</key>
   <string>/tmp/work-summary.out</string>
   <key>StandardErrorPath</key>

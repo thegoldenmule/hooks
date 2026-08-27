@@ -1,6 +1,6 @@
 #!/bin/bash
 # Collects Benjamin's previous-day activity across the powerhouse-inc org using the
-# real, authenticated gh CLI on macOS. Run by launchd weekday mornings at 7:55 AM.
+# real, authenticated gh CLI on macOS. Run by launchd weekday mornings at 5:00 AM.
 # Output: latest.json, shaped by brief.mjs and summarized by summarize.sh.
 
 set -uo pipefail

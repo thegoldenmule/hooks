@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared environment. launchd starts jobs with a minimal PATH and does not load
-# nvm, so node and claude must be located explicitly or the 7:55 run dies with
+# nvm, so node and claude must be located explicitly or the 5:00 run dies with
 # "command not found" and no summary appears.
 
 # The install locates itself, so the checkout can live anywhere. Set
