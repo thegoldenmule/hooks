@@ -110,6 +110,21 @@ counts rows itself.
 `summarize.sh` calls `claude -p`, then `validate.mjs`. A rejected draft goes
 back with the validator's complaints attached, up to four attempts.
 
+Two different things fail there and the run says which. A draft that never
+passes the format check keeps the validator's last report. A `claude` that never
+returns a draft is a separate failure, and `summary.md` shows the error it
+printed, because calling that one a format failure sent a morning looking for a
+bad draft that had never been written. An error naming authentication stops the
+retries early: an expired login fails the same way four times and only delays
+the one message worth reading.
+
+The bullets are only ever the ones this run produced. `draft.md` is removed
+before the first attempt, because reading a stale one republished the previous
+day's bullets under today's date, in `history.md` as well as `summary.md`. A run
+that produces no bullets leaves `history.md` untouched rather than replacing a
+good section with an empty one, and a draft that failed the format check is
+recorded there with a line saying so.
+
 `validate.mjs` is the authority on format, not the prompt. It enforces:
 
 - Three to five bullets and nothing else in the output.
