@@ -32,7 +32,9 @@ WINDOW=$(head -1 "$S")
 printf '\n%sWork log%s %s%s%s\n' "$BOLD" "$OFF" "$DIM" "$WINDOW" "$OFF"
 bullets=$(grep '^- ' "$S" || true)
 if [ -n "$bullets" ]; then
-  printf '%s\n' "$bullets" | sed "s/^/  /"
+  # Flush left, not indented. These are the lines you copy out into a standup
+  # or a message, and a leading two spaces comes along with them.
+  printf '%s\n' "$bullets"
 else
   # A failed run has no bullets, so show its explanation instead of nothing.
   # The NEEDS ATTENTION line is dropped here because it is reprinted below in
