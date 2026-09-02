@@ -13,6 +13,31 @@ cd "$DIR" || exit 1
 
 LOG="$DIR/collect.log"
 MAX_TRIES=4
+# There is no timeout(1) on macOS and the claude CLI has no wall-clock limit of
+# its own, so a flaky connection turns into a 35 minute hang while the CLI
+# retries the stream internally. Four of those ran a 5:00 job until 6:36. Bound
+# each attempt here instead, and let the loop below own the retrying.
+ATTEMPT_TIMEOUT=300
+# Redirections belong at the call site; the background child inherits them.
+run_with_timeout() {
+  local secs="$1"; shift
+  "$@" &
+  local pid=$! waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$secs" ]; then
+      kill -TERM "$pid" 2>/dev/null
+      sleep 2
+      kill -KILL "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  # Report what the command exited with, so the caller can still tell an auth
+  # failure from anything else.
+  wait "$pid"
+}
 say() { echo "$(date '+%F %T') [summarize] $*" >> "$LOG"; }
 
 for bin in node claude; do
@@ -84,10 +109,19 @@ for try in $(seq 1 "$MAX_TRIES"); do
   } > request.txt
 
   # </dev/null or claude stalls 3s waiting on stdin it will never get.
-  if ! claude -p "$(cat request.txt)" > draft.raw 2>>"$LOG" < /dev/null; then
+  run_with_timeout "$ATTEMPT_TIMEOUT" \
+    claude -p "$(cat request.txt)" > draft.raw 2>>"$LOG" < /dev/null
+  RC=$?
+  if [ "$RC" -ne 0 ]; then
     # claude prints its reason on stdout, so draft.raw holds the error rather
-    # than a draft. Keep it: it is the only place the real cause survives.
-    INVOKE_ERR=$(head -c 500 draft.raw)
+    # than a draft. Keep it: it is the only place the real cause survives. A
+    # kill leaves nothing behind, so name the timeout ourselves rather than
+    # reporting "no output" for the one failure whose cause we do know.
+    if [ "$RC" = "124" ]; then
+      INVOKE_ERR="timed out after ${ATTEMPT_TIMEOUT}s (a normal attempt takes under two minutes)"
+    else
+      INVOKE_ERR=$(head -c 500 draft.raw)
+    fi
     say "attempt $try: claude invocation failed, ${INVOKE_ERR:-no output}"
     # An expired login fails identically four times in a row. Retrying it just
     # delays the report by six minutes and buries the one useful message.
@@ -95,10 +129,21 @@ for try in $(seq 1 "$MAX_TRIES"); do
       say "not retrying: this needs a login, not another attempt"
       break
     fi
+    [ "$try" -lt "$MAX_TRIES" ] && sleep $((try * 30))
     continue
   fi
   # Strip any code fence the model wraps around the list.
   sed 's/^```.*$//' draft.raw | sed '/^$/d' > draft.md
+  # Exit 0 is not proof of a draft. The CLI has printed an API error and exited
+  # clean, and that text went to the validator, was rejected on shape, and
+  # landed in history.md looking like a draft. An error is a failed attempt.
+  if [ ! -s draft.md ] || grep -qE '^(API Error|Error):' draft.md; then
+    INVOKE_ERR=$(head -c 500 draft.raw)
+    say "attempt $try: claude exited 0 without a draft, ${INVOKE_ERR:-no output}"
+    rm -f draft.md
+    [ "$try" -lt "$MAX_TRIES" ] && sleep $((try * 30))
+    continue
+  fi
   GOT_DRAFT=1
   INVOKE_ERR=""
 

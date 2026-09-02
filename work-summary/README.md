@@ -110,6 +110,21 @@ counts rows itself.
 `summarize.sh` calls `claude -p`, then `validate.mjs`. A rejected draft goes
 back with the validator's complaints attached, up to four attempts.
 
+Each attempt is bounded at five minutes and the next one waits, longer each
+time. There is no `timeout(1)` on macOS and the CLI sets no wall clock of its
+own, so a flaky connection became a 35 minute attempt while the CLI retried the
+stream inside itself. Four of those ran a 5:00 job until 6:36 and still ended
+with nothing. Bounding the attempt moves the retrying out where it can be paced:
+a normal attempt finishes inside two minutes, so five is a hang, and a killed
+attempt says it timed out rather than reporting no output. The cost is that a
+call which would have succeeded on minute thirteen now gets killed, which is
+worth it because the loop has three more attempts and an hour less to spend.
+
+Exiting zero is not proof of a draft either. The CLI prints an API error and
+exits clean, and that text used to go to the validator, get rejected on shape,
+and land in `history.md` looking like a draft. An error or an empty draft counts
+as a failed attempt.
+
 Two different things fail there and the run says which. A draft that never
 passes the format check keeps the validator's last report. A `claude` that never
 returns a draft is a separate failure, and `summary.md` shows the error it
