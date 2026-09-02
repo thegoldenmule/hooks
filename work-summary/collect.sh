@@ -12,6 +12,7 @@ LOG="$DIR/collect.log"
 ERRS="$DIR/.collect-errors"
 LIMIT=100        # a 41-commit day is normal here, so 50 was one busy day from silently truncating
 PR_CAP=40        # walking a PR's commits costs one API call each, so bound it
+REF_CAP=40       # same for the branches a push event names
 mkdir -p "$DIR"
 : > "$ERRS"
 
@@ -63,6 +64,31 @@ q() {
   done
   echo "$(date '+%F %T') [collect] $name GAVE UP, recording as missing" >> "$LOG"
   echo "$name" >> "$ERRS"
+  echo '[]'
+}
+
+# A branch named by a push event can be gone by morning: the PR merged and the
+# branch was deleted. Its commits are already covered by the merged-PR and
+# default-branch queries, so a 404 is a quiet skip. Recording it as a failure
+# instead stamped a complete day with "work may be missing". Anything other than
+# a 404 keeps q's retry-and-report behaviour.
+qref() {
+  local name="$1"; shift
+  local out err
+  err=$(mktemp)
+  for attempt in 1 2 3; do
+    if out=$("$@" 2>"$err"); then rm -f "$err"; printf '%s' "$out"; return 0; fi
+    cat "$err" >> "$LOG"
+    if grep -q 'HTTP 404' "$err"; then
+      echo "$(date '+%F %T') [collect] $name is gone, branch deleted, skipping" >> "$LOG"
+      rm -f "$err"; echo '[]'; return 0
+    fi
+    echo "$(date '+%F %T') [collect] $name attempt $attempt failed" >> "$LOG"
+    [ "$attempt" -lt 3 ] && sleep $((attempt * 3))
+  done
+  echo "$(date '+%F %T') [collect] $name GAVE UP, recording as missing" >> "$LOG"
+  echo "$name" >> "$ERRS"
+  rm -f "$err"
   echo '[]'
 }
 
@@ -134,10 +160,62 @@ BRANCH=$(
   fi
 )
 
+# A PR is not the only way work reaches GitHub, and until this it was the only
+# way work reached this summary. `gh search commits` indexes default branches
+# only, and the walk above can only see a branch that already has a PR, so a day
+# spent committing to a branch before opening the PR collected three commits out
+# of thirty-two. Push events name every branch pushed, PR or no PR.
+#
+# The event window starts with the summary window but runs to now, because a
+# branch committed at 11pm and pushed the next morning is still that day's work.
+# Author date, filtered below, decides which day a commit belongs to.
+PUSHED=$(
+  if [ -z "$ME" ]; then
+    echo '[]'
+  else
+    n=0
+    q push_events gh api --paginate "/users/$ME/events?per_page=100" \
+      | jq -s -r --arg org "$ORG" --argjson s "$WSTART_EPOCH" '
+          [ .[] | if type == "array" then .[] else empty end ]
+          | map(select(.type == "PushEvent"))
+          | map(select(.repo.name | startswith($org + "/")))
+          | map(select((.created_at | fromdateiso8601) >= $s))
+          | map("\(.repo.name)\t\(.payload.ref)")
+          | unique | .[]' \
+      | while IFS=$'\t' read -r repo ref; do
+          [ -n "${repo:-}" ] && [ -n "${ref:-}" ] || continue
+          n=$((n + 1))
+          if [ "$n" -gt "$REF_CAP" ]; then
+            echo "$(date '+%F %T') [collect] more than $REF_CAP pushed refs, stopped" >> "$LOG"
+            echo "pushed_ref_commits_capped" >> "$ERRS"
+            break
+          fi
+          # `since` filters on committer date, which a rebase moves forward but
+          # never back, so it is safe as a cheap bound. `until` is not: a
+          # rebased commit can be committed after the window it was authored in.
+          # Author date decides, and jq applies it.
+          qref "ref_commits:$repo@$ref" gh api \
+            "repos/$repo/commits?sha=${ref#refs/heads/}&author=$ME&since=$(date -r "$WSTART_EPOCH" -u +%FT%TZ)&per_page=$LIMIT" \
+            | jq -c --arg repo "$repo" \
+                   --argjson s "$WSTART_EPOCH" --argjson e "$WEND_EPOCH" '
+                (if type == "array" then . else [] end) | [ .[]
+                  | select((.commit.author.date | fromdateiso8601) >= $s
+                       and (.commit.author.date | fromdateiso8601) <= $e)
+                  | { sha: .sha,
+                      repository: { nameWithOwner: $repo, fullName: $repo,
+                                    name: ($repo | split("/") | last) },
+                      commit: { message: .commit.message,
+                                author: { date: .commit.author.date,
+                                          name: (.commit.author.name // ""),
+                                          email: (.commit.author.email // "") } } } ]'
+        done | jq -s 'add // []'
+  fi
+)
+
 # The squash commit for a merged PR and that PR's own branch commits both
 # describe the same work. Keeping both is what we want, since brief.mjs folds
 # the squash into the PR entry, but the same sha must not appear twice.
-COMMITS=$(printf '%s\n%s\n' "$SEARCHED_COMMITS" "$BRANCH" \
+COMMITS=$(printf '%s\n%s\n%s\n' "$SEARCHED_COMMITS" "$BRANCH" "$PUSHED" \
   | jq -s 'map(if type == "array" then . else [] end) | add | unique_by(.sha)')
 
 # Any query that comes back exactly at the cap probably lost rows. Say so in the
