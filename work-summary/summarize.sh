@@ -89,7 +89,7 @@ fi
 # A previous run's draft.md is still on disk. If every attempt below fails to
 # reach the model, reading that file would publish yesterday's bullets under
 # today's window, which is how a stale day got copied into history.md.
-rm -f draft.md draft.raw
+rm -f draft.md draft.raw draft.tmp
 
 FEEDBACK=""
 INVOKE_ERR=""
@@ -132,18 +132,21 @@ for try in $(seq 1 "$MAX_TRIES"); do
     [ "$try" -lt "$MAX_TRIES" ] && sleep $((try * 30))
     continue
   fi
-  # Strip any code fence the model wraps around the list.
-  sed 's/^```.*$//' draft.raw | sed '/^$/d' > draft.md
+  # Strip any code fence the model wraps around the list. Shaped into a temp
+  # file first, because a failed attempt must not overwrite draft.md: $FEEDBACK
+  # is a report about that file, and the next request sends the two together.
+  sed 's/^```.*$//' draft.raw | sed '/^$/d' > draft.tmp
   # Exit 0 is not proof of a draft. The CLI has printed an API error and exited
   # clean, and that text went to the validator, was rejected on shape, and
   # landed in history.md looking like a draft. An error is a failed attempt.
-  if [ ! -s draft.md ] || grep -qE '^(API Error|Error):' draft.md; then
+  if [ ! -s draft.tmp ] || grep -qE '^(API Error|Error):' draft.tmp; then
     INVOKE_ERR=$(head -c 500 draft.raw)
     say "attempt $try: claude exited 0 without a draft, ${INVOKE_ERR:-no output}"
-    rm -f draft.md
+    rm -f draft.tmp
     [ "$try" -lt "$MAX_TRIES" ] && sleep $((try * 30))
     continue
   fi
+  mv draft.tmp draft.md
   GOT_DRAFT=1
   INVOKE_ERR=""
 
