@@ -91,10 +91,24 @@ bug:
   Every PR found above is walked with `gh pr view --json commits`, filtered to
   your own authorship inside the window, and merged with the search results,
   deduplicated on sha. `PR_CAP` bounds the API calls.
+- **Push events supply the branches that have no PR yet.** The walk above can
+  only reach a branch that already has a PR, which left the largest hole this
+  collector has had: a day of 32 commits on `feat/bench-records` reported 3,
+  because the PR for that branch was opened at 08:24 the next morning, three
+  hours after the run. `/users/{me}/events` names every branch pushed, and the
+  author's commits on each are listed directly. The event window starts with the
+  summary window and runs to now, since a branch committed at 11pm and pushed
+  the next morning is still that day's work; author date decides the day, and it
+  is applied locally rather than through the API's `until`, which filters on a
+  committer date that a rebase moves forward. `REF_CAP` bounds the calls.
 
 A query that fails is not a query that returned nothing. `q()` retries three
 times with backoff, and a query that stays dead is named in `failed_queries` in
-`latest.json` rather than becoming an empty array. `brief.mjs` then prints a
+`latest.json` rather than becoming an empty array. One case is not a failure at
+all: a pushed branch can be deleted once its PR merges, and `qref()` treats that
+404 as a quiet skip, because those commits already arrive through the merged-PR
+and default-branch queries. Recorded as a hole, it stamped a complete day with
+"work may be missing". `brief.mjs` then prints a
 `DATA INCOMPLETE` banner, reports the affected counts as `at least N`, and
 refuses to emit `NO ACTIVITY FOUND`, because the difference between "nothing
 happened" and "nothing was collected" is the one thing the summary must not
