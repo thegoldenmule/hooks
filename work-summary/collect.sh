@@ -179,6 +179,7 @@ PUSHED=$(
           [ .[] | if type == "array" then .[] else empty end ]
           | map(select(.type == "PushEvent"))
           | map(select(.repo.name | startswith($org + "/")))
+          | map(select(.payload.ref | startswith("refs/heads/")))
           | map(select((.created_at | fromdateiso8601) >= $s))
           | map("\(.repo.name)\t\(.payload.ref)")
           | unique | .[]' \
@@ -194,7 +195,12 @@ PUSHED=$(
           # never back, so it is safe as a cheap bound. `until` is not: a
           # rebased commit can be committed after the window it was authored in.
           # Author date decides, and jq applies it.
-          qref "ref_commits:$repo@$ref" gh api \
+          #
+          # --paginate because a 41-commit day is normal here and a Monday
+          # window covers three of them, so one page is a busy weekend away from
+          # dropping commits with nothing to say it did. jq filters each page and
+          # the add below merges them.
+          qref "ref_commits:$repo@$ref" gh api --paginate \
             "repos/$repo/commits?sha=${ref#refs/heads/}&author=$ME&since=$(date -r "$WSTART_EPOCH" -u +%FT%TZ)&per_page=$LIMIT" \
             | jq -c --arg repo "$repo" \
                    --argjson s "$WSTART_EPOCH" --argjson e "$WEND_EPOCH" '
